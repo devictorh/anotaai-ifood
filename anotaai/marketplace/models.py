@@ -16,7 +16,7 @@ class Product(models.Model):
     title = models.CharField(max_length=100)
     description = models.CharField(max_length=500)
     price = models.DecimalField(max_digits=5, decimal_places=2)
-    category = models.EmbeddedField(Category)
+    category = models.CharField(max_length=24)
     ownerid = models.CharField(max_length=25)
 
     def __str__(self) -> str:
