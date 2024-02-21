@@ -1,6 +1,7 @@
 from djongo import models
 
 
+
 class Category(models.Model):
     _id = models.ObjectIdField()
     title = models.CharField(max_length=100)

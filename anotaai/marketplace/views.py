@@ -64,8 +64,25 @@ class CategoryAPIView(APIView):
         else:
             return Response(
                 {"error": "It's necessary pass 'category_id'"},
-                status=status.HTTP_406_NOT_ACCEPTABLE
+                status=status.HTTP_404_NOT_FOUND
             )
+
+    def get(self, request, category_id=None):
+        if not category_id:
+            categories = Category.objects.all()
+            serializer = CategorySerializer(categories, many=True)
+
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        else:
+            try:
+                category = Category.objects.get(pk=ObjectId(category_id))
+                serializer = CategorySerializer(category)
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            except Category.DoesNotExist:
+                return Response(
+                    {"erro": "Category not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
 
 
 class ProductAPIView(APIView):
@@ -148,3 +165,24 @@ class ProductAPIView(APIView):
                 {"error": "Product not found"},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+    def get(self, request, product_id=None):
+        if not product_id:
+            products = Product.objects.all()
+            serializer = ProductSerializer(
+                            products,
+                            many=True,
+                            context={'request': request}
+                        )
+
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        else:
+            try:
+                product = Product.objects.get(pk=ObjectId(product_id))
+                serializer = ProductSerializer(product)
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            except Product.DoesNotExist:
+                return Response(
+                    {"erro": "Product not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
