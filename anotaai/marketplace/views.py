@@ -1,3 +1,8 @@
+import boto3
+import os
+import json
+
+from dotenv import load_dotenv
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -5,8 +10,16 @@ from .models import Category, Product
 from .serializers import ProductSerializer, CategorySerializer
 from bson import ObjectId
 
+load_dotenv()
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+AWS_REGION = os.getenv('AWS_REGION')
+AWS_URL_SQS = os.getenv('AWS_URL_SQS')
+AWS_SNS_ARN = os.getenv('AWS_SNS_ARN')
+
 
 class CategoryAPIView(APIView):
+
     def post(self, request):
         serializer = CategorySerializer(data=request.data)
         if serializer.is_valid():
@@ -86,6 +99,16 @@ class CategoryAPIView(APIView):
 
 
 class ProductAPIView(APIView):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+
+        self.sns = boto3.client(
+            "sns",
+            region_name=AWS_REGION,
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY
+        )
+
     def post(self, request):
         category_id = request.data.get('category', None)
         if not category_id:
@@ -98,6 +121,7 @@ class ProductAPIView(APIView):
             category = Category.objects.get(
                 pk=ObjectId(request.data['category'])
             )
+            category_data = CategorySerializer(category)
         except Category.DoesNotExist:
             return Response(
                 {"error": "Category not found"},
@@ -107,6 +131,22 @@ class ProductAPIView(APIView):
         serializer = ProductSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
+
+            message = serializer.data
+            message['category'] = category_data.data
+
+            try:
+                response = self.sns.publish(
+                    TopicArn=AWS_SNS_ARN,
+                    Message=json.dumps(message)
+                )
+                print(response)
+            except Exception as err:
+                return Response(
+                    {"error": f'An error occurred while publishing: {err}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         else:
             return Response(
