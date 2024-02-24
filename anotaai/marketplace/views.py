@@ -1,6 +1,7 @@
 import boto3
 import os
 import json
+import logging
 
 from dotenv import load_dotenv
 from rest_framework.views import APIView
@@ -101,13 +102,23 @@ class CategoryAPIView(APIView):
 class ProductAPIView(APIView):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-
+        self.message: dict = {}
         self.sns = boto3.client(
             "sns",
             region_name=AWS_REGION,
             aws_access_key_id=AWS_ACCESS_KEY_ID,
             aws_secret_access_key=AWS_SECRET_ACCESS_KEY
         )
+
+    def _send_notification_to_sns_topic(self, message):
+        try:
+            response = self.sns.publish(
+                TopicArn=AWS_SNS_ARN,
+                Message=json.dumps(message)
+            )
+            logging.info("notification sent successfully")
+        except Exception as err:
+            logging.error(f"error sending message: {err}")
 
     def post(self, request):
         category_id = request.data.get('category', None)
@@ -118,9 +129,7 @@ class ProductAPIView(APIView):
             )
 
         try:
-            category = Category.objects.get(
-                pk=ObjectId(request.data['category'])
-            )
+            category = Category.objects.get(pk=ObjectId(category_id))
             category_data = CategorySerializer(category)
         except Category.DoesNotExist:
             return Response(
@@ -132,20 +141,10 @@ class ProductAPIView(APIView):
         if serializer.is_valid():
             serializer.save()
 
-            message = serializer.data
-            message['category'] = category_data.data
-
-            try:
-                response = self.sns.publish(
-                    TopicArn=AWS_SNS_ARN,
-                    Message=json.dumps(message)
-                )
-                print(response)
-            except Exception as err:
-                return Response(
-                    {"error": f'An error occurred while publishing: {err}'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            self.message["type"] = "create"
+            self.message["product"] = serializer.data
+            self.message["product"]['category'] = category_data.data
+            self._send_notification_to_sns_topic(self.message)
 
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         else:
@@ -164,6 +163,7 @@ class ProductAPIView(APIView):
 
         try:
             category = Category.objects.get(pk=ObjectId(category_id))
+            category_data = CategorySerializer(category)
         except Category.DoesNotExist:
             return Response(
                 {"error": "Category not found"},
@@ -181,10 +181,13 @@ class ProductAPIView(APIView):
         serializer = ProductSerializer(product, request.data)
         if serializer.is_valid():
             serializer.save()
-            return Response(
-                serializer.data,
-                status=status.HTTP_200_OK
-            )
+
+            self.message["type"] = "update"
+            self.message["product"] = serializer.data
+            self.message["product"]['category'] = category_data.data
+            self._send_notification_to_sns_topic(self.message)
+
+            return Response(serializer.data, status=status.HTTP_200_OK)
         else:
             return Response(
                 serializer.data,
@@ -194,12 +197,18 @@ class ProductAPIView(APIView):
     def delete(self, request, product_id=None):
         try:
             product = Product.objects.get(pk=ObjectId(product_id))
-            product.delete()
+            product_data = ProductSerializer(product)
+            if product:
+                product.delete()
 
-            return Response(
-                {"msg": "Product successfully deleted"},
-                status=status.HTTP_202_ACCEPTED
-            )
+                self.message["type"] = "delete"
+                self.message['product'] = product_data
+                self._send_notification_to_sns_topic(self.message)
+
+                return Response(
+                    {"msg": "Product successfully deleted"},
+                    status=status.HTTP_202_ACCEPTED
+                )
         except Product.DoesNotExist:
             return Response(
                 {"error": "Product not found"},
