@@ -1,9 +1,6 @@
-import boto3
-import os
-import json
 import logging
 
-from dotenv import load_dotenv
+from .common import AwsUtils
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -11,20 +8,23 @@ from .models import Category, Product
 from .serializers import ProductSerializer, CategorySerializer
 from bson import ObjectId
 
-load_dotenv()
-AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
-AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
-AWS_REGION = os.getenv('AWS_REGION')
-AWS_URL_SQS = os.getenv('AWS_URL_SQS')
-AWS_SNS_ARN = os.getenv('AWS_SNS_ARN')
-
 
 class CategoryAPIView(APIView):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.aws_utils = AwsUtils()
+        self.type = "category"
+        self.message = {}
 
     def post(self, request):
         serializer = CategorySerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
+
+            self.message = serializer.data
+            self.message["type"] = self.type
+            self.message["action"] = "create"
+            self.aws_utils._send_message_to_sqs(self.message)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         else:
             return Response(
@@ -45,6 +45,12 @@ class CategoryAPIView(APIView):
             serializer = CategorySerializer(category, data=request.data)
             if serializer.is_valid():
                 serializer.save()
+
+                self.message = serializer.data
+                self.message["type"] = self.type
+                self.message["action"] = "update"
+                self.aws_utils._send_message_to_sqs(self.message)
+
                 return Response(
                     serializer.data,
                     status=status.HTTP_202_ACCEPTED
@@ -64,12 +70,18 @@ class CategoryAPIView(APIView):
         if category_id:
             try:
                 category = Category.objects.get(pk=ObjectId(category_id))
-                category.delete()
+                if category:
+                    category.delete()
 
-                return Response(
-                    {"msg": "Category successfully deleted"},
-                    status=status.HTTP_202_ACCEPTED
-                )
+                    self.message["type"] = self.type
+                    self.message["action"] = "delete"
+                    self.message["category_id"] = category_id
+                    self.aws_utils._send_message_to_sqs(self.message)
+
+                    return Response(
+                        {"msg": "Category successfully deleted"},
+                        status=status.HTTP_202_ACCEPTED
+                    )
             except Category.DoesNotExist:
                 return Response(
                     {"error": "Category not found"},
@@ -102,23 +114,9 @@ class CategoryAPIView(APIView):
 class ProductAPIView(APIView):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.message: dict = {}
-        self.sns = boto3.client(
-            "sns",
-            region_name=AWS_REGION,
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY
-        )
-
-    def _send_notification_to_sns_topic(self, message):
-        try:
-            response = self.sns.publish(
-                TopicArn=AWS_SNS_ARN,
-                Message=json.dumps(message)
-            )
-            logging.info("notification sent successfully")
-        except Exception as err:
-            logging.error(f"error sending message: {err}")
+        self.aws_utils = AwsUtils()
+        self.type = "product"
+        self.message = {}
 
     def post(self, request):
         category_id = request.data.get('category', None)
@@ -141,10 +139,11 @@ class ProductAPIView(APIView):
         if serializer.is_valid():
             serializer.save()
 
-            self.message["type"] = "create"
+            self.message["type"] = self.type
+            self.message["action"] = "create"
             self.message["product"] = serializer.data
             self.message["product"]['category'] = category_data.data
-            self._send_notification_to_sns_topic(self.message)
+            self.aws_utils._send_message_to_sqs(self.message)
 
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         else:
@@ -182,10 +181,11 @@ class ProductAPIView(APIView):
         if serializer.is_valid():
             serializer.save()
 
-            self.message["type"] = "update"
+            self.message["type"] = self.type
+            self.message["action"] = "update"
             self.message["product"] = serializer.data
             self.message["product"]['category'] = category_data.data
-            self._send_notification_to_sns_topic(self.message)
+            self.aws_utils._send_message_to_sqs(self.message)
 
             return Response(serializer.data, status=status.HTTP_200_OK)
         else:
@@ -197,13 +197,13 @@ class ProductAPIView(APIView):
     def delete(self, request, product_id=None):
         try:
             product = Product.objects.get(pk=ObjectId(product_id))
-            product_data = ProductSerializer(product)
             if product:
                 product.delete()
 
-                self.message["type"] = "delete"
-                self.message['product'] = product_data
-                self._send_notification_to_sns_topic(self.message)
+                self.message["type"] = self.type
+                self.message["action"] = "delete"
+                self.message['product_id'] = product_id
+                self.aws_utils._send_message_to_sqs(self.message)
 
                 return Response(
                     {"msg": "Product successfully deleted"},
