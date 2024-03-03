@@ -13,16 +13,15 @@ class CategoryAPIView(APIView):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.aws_utils = AwsUtils()
-        self.type = "category"
         self.message = {}
+        self.message["type"] = "categories"
 
     def post(self, request):
         serializer = CategorySerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
 
-            self.message = serializer.data
-            self.message["type"] = self.type
+            self.message["category"] = serializer.data
             self.message["action"] = "create"
             self.aws_utils._send_message_to_sqs(self.message)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -46,8 +45,7 @@ class CategoryAPIView(APIView):
             if serializer.is_valid():
                 serializer.save()
 
-                self.message = serializer.data
-                self.message["type"] = self.type
+                self.message["category"] = serializer.data
                 self.message["action"] = "update"
                 self.aws_utils._send_message_to_sqs(self.message)
 
@@ -70,12 +68,15 @@ class CategoryAPIView(APIView):
         if category_id:
             try:
                 category = Category.objects.get(pk=ObjectId(category_id))
+                print(category)
+                category_data = CategorySerializer(category_id)
+                print(category_data)
                 if category:
                     category.delete()
 
-                    self.message["type"] = self.type
                     self.message["action"] = "delete"
-                    self.message["category_id"] = category_id
+                    self.message["id"] = category_id
+                    self.message['ownerid'] = category_data.data["ownerid"]
                     self.aws_utils._send_message_to_sqs(self.message)
 
                     return Response(
@@ -115,8 +116,8 @@ class ProductAPIView(APIView):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.aws_utils = AwsUtils()
-        self.type = "product"
         self.message = {}
+        self.message["type"] = "products"
 
     def post(self, request):
         category_id = request.data.get('category', None)
@@ -139,7 +140,6 @@ class ProductAPIView(APIView):
         if serializer.is_valid():
             serializer.save()
 
-            self.message["type"] = self.type
             self.message["action"] = "create"
             self.message["product"] = serializer.data
             self.message["product"]['category'] = category_data.data
@@ -181,7 +181,6 @@ class ProductAPIView(APIView):
         if serializer.is_valid():
             serializer.save()
 
-            self.message["type"] = self.type
             self.message["action"] = "update"
             self.message["product"] = serializer.data
             self.message["product"]['category'] = category_data.data
@@ -197,12 +196,13 @@ class ProductAPIView(APIView):
     def delete(self, request, product_id=None):
         try:
             product = Product.objects.get(pk=ObjectId(product_id))
+            product_data = ProductSerializer(product)
             if product:
                 product.delete()
 
-                self.message["type"] = self.type
                 self.message["action"] = "delete"
-                self.message['product_id'] = product_id
+                self.message['id'] = product_id
+                self.message['ownerid'] = product_data.data["ownerid"]
                 self.aws_utils._send_message_to_sqs(self.message)
 
                 return Response(
