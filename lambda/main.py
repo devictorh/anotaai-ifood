@@ -50,7 +50,15 @@ def run_create(obj_catalog: dict, item: dict, type_msg: str) -> None:
 
 def run_update(obj_catalog: dict, item: dict, type_msg: str) -> None:
     try:
-        upload_catalog_to_s3(obj_catalog, item["ownerid"])
+        if not obj_catalog:
+            run_create(obj_catalog, item, type_msg)
+        else:
+            if len(obj_catalog[type_msg]) > 0:
+                for idx, item_obj in enumerate(obj_catalog[type_msg]):
+                    if item_obj["_id"] == item["_id"]:
+                        obj_catalog[type_msg][idx] = item
+                        upload_catalog_to_s3(obj_catalog, item["ownerid"])
+                        break
     except Exception as e:
         logger.error(
             f"An error occurred while completing upload process: {e}"
@@ -66,9 +74,9 @@ def run_delete(
     try:
         if obj_catalog:
             if len(obj_catalog[type_msg]) > 0:
-                for item_obj in obj_catalog[type_msg]:
+                for idx, item_obj in enumerate(obj_catalog[type_msg]):
                     if item_obj["_id"] == id:
-                        obj_catalog[type_msg].pop(item_obj)
+                        obj_catalog[type_msg].pop(idx)
                         break
                 upload_catalog_to_s3(obj_catalog, owner_id)
             else:
@@ -93,11 +101,11 @@ def check_if_file_owner_exists(ownerid: str) -> dict:
 
 def execute_update(body: dict, type_msg: str, action: str) -> None:
     try:
-        if type_msg != "delete":
+        if action != "delete":
             item = body["category"] if type_msg == "categories" \
                                     else body["product"]
 
-        owner_id = item["ownerid"] if type_msg != "delete" else body["ownerid"]
+        owner_id = item["ownerid"] if action != "delete" else body["ownerid"]
 
         obj_catalog = check_if_file_owner_exists(owner_id)
 

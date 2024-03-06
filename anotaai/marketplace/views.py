@@ -68,9 +68,7 @@ class CategoryAPIView(APIView):
         if category_id:
             try:
                 category = Category.objects.get(pk=ObjectId(category_id))
-                print(category)
-                category_data = CategorySerializer(category_id)
-                print(category_data)
+                category_data = CategorySerializer(category)
                 if category:
                     category.delete()
 
